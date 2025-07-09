@@ -1,0 +1,126 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: dental-system-postgres
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: dental_db
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - dental-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  users:
+    container_name: dental-system-users
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: node dist/apps/users/src/main.js
+    ports:
+      - '3101:3101'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    networks:
+      - dental-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3101/users/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  auth:
+    container_name: dental-system-auth
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: node dist/apps/auth/src/main.js
+    ports:
+      - '3000:3000'         # HTTP endpoint
+      - '3002:3002'         # TCP microservice
+    depends_on:
+      users:
+        condition: service_healthy
+    env_file:
+      - .env
+    networks:
+      - dental-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/auth/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  appointments:
+    container_name: dental-system-appointments
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: node dist/apps/appointments/src/main.js
+    ports:
+      - '3003:3003'         # HTTP endpoint
+      - '3004:3004'         # TCP microservice
+    depends_on:
+      postgres:
+        condition: service_healthy
+      users:
+        condition: service_healthy
+    env_file:
+      - .env
+    networks:
+      - dental-net
+    # healthcheck:
+    #   test: ["CMD", "curl", "-f", "http://localhost:3003/appointments/health"]
+    #   interval: 10s
+    #   timeout: 5s
+    #   retries: 5
+
+  docs:
+    container_name: dental-system-docs
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: node dist/apps/docs/src/main.js
+    ports:
+      - '4000:4000'
+    depends_on:
+      users:
+        condition: service_healthy
+      auth:
+        condition: service_healthy
+      # appointments:
+      #   condition: service_healthy
+    networks:
+      - dental-net
+  
+  api-gateway:
+    container_name: dental-system-api-gateway
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: node dist/apps/api-gateway/src/main.js
+    ports:
+      - '5000:5000'
+    env_file:
+      - .env
+    networks:
+      - dental-net
+
+volumes:
+  pgdata:
+
+networks:
+  dental-net:
+    driver: bridge
